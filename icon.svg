@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Fondo rojo (maskable: contenido en zona segura central) -->
+  <rect width="512" height="512" fill="#DC2626"/>
+  <!-- Cruz blanca centrada -->
+  <rect x="210" y="90" width="92" height="332" rx="14" fill="white"/>
+  <rect x="90" y="196" width="332" height="92" rx="14" fill="white"/>
+</svg>
