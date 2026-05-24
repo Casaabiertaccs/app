@@ -311,6 +311,7 @@
                             {currentView === 'asignaciones' && <Asignaciones userProfile={userProfile} />}
                             {currentView === 'escuela' && <EscuelaAdora userProfile={userProfile} />}
                             {currentView === 'visitantes' && <Visitantes />}
+                            {currentView === 'evangelismo' && <Evangelismo />}
                             {currentView === 'peticiones' && <PeticionesOracion userProfile={userProfile} />}
                             {currentView === 'finanzas' && <Finanzas userProfile={userProfile} />}
                             {currentView === 'usuarios' && <GestionUsuarios userProfile={userProfile} />}
@@ -342,6 +343,7 @@
                 { id: 'escuela', icon: '🎓', label: 'Escuela Adora' },
                 { id: 'asistencia', icon: '✅', label: 'Asistencia' },
                 { id: 'visitantes', icon: '🆕', label: 'Visitantes' },
+                { id: 'evangelismo', icon: '🕊️', label: 'Evangelismo' },
                 { id: 'peticiones', icon: '🙏', label: 'Peticiones de Oración' },
                 { id: 'finanzas', icon: '💰', label: 'Finanzas' },
                 { id: 'usuarios', icon: '👤', label: 'Gestión de Usuarios' },
@@ -6741,6 +6743,444 @@
                         <button onClick={onClose} className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-300">
                             ✕ Cancelar
                         </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================
+        // EVANGELISMO
+        // ============================================
+        function Evangelismo() {
+            const [salidas, setSalidas] = useState([]);
+            const [mostrarForm, setMostrarForm] = useState(false);
+            const [salidaEditando, setSalidaEditando] = useState(null);
+            const [detalleSalidaId, setDetalleSalidaId] = useState(null);
+            const [saving, setSaving] = useState(false);
+            const [filtroMes, setFiltroMes] = useState('todos');
+
+            const formVacio = {
+                fecha: new Date().toISOString().split('T')[0],
+                zona: '',
+                tipo: 'En la calle',
+                notas: '',
+                contactos: []
+            };
+            const [formData, setFormData] = useState(formVacio);
+            const [nuevoContacto, setNuevoContacto] = useState({ nombre: '', telefono: '', interes: false });
+
+            useEffect(() => {
+                const unsubscribe = db.collection('evangelismo_salidas')
+                    .orderBy('fecha', 'desc')
+                    .onSnapshot(snapshot => {
+                        setSalidas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    });
+                return () => unsubscribe();
+            }, []);
+
+            const agregarContacto = () => {
+                if (!nuevoContacto.nombre.trim()) return;
+                setFormData(prev => ({
+                    ...prev,
+                    contactos: [...prev.contactos, { ...nuevoContacto }]
+                }));
+                setNuevoContacto({ nombre: '', telefono: '', interes: false });
+            };
+
+            const eliminarContacto = (idx) => {
+                setFormData(prev => ({
+                    ...prev,
+                    contactos: prev.contactos.filter((_, i) => i !== idx)
+                }));
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setSaving(true);
+                try {
+                    const datos = {
+                        ...formData,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    if (salidaEditando) {
+                        await db.collection('evangelismo_salidas').doc(salidaEditando.id).update(datos);
+                        alert('✓ Salida actualizada');
+                    } else {
+                        await db.collection('evangelismo_salidas').add(datos);
+                        alert('✓ Salida registrada');
+                    }
+                    cerrarForm();
+                } catch (err) {
+                    alert('Error al guardar');
+                }
+                setSaving(false);
+            };
+
+            const cerrarForm = () => {
+                setFormData(formVacio);
+                setSalidaEditando(null);
+                setMostrarForm(false);
+                setNuevoContacto({ nombre: '', telefono: '', interes: false });
+            };
+
+            const editarSalida = (salida) => {
+                setSalidaEditando(salida);
+                setFormData({
+                    fecha: salida.fecha || '',
+                    zona: salida.zona || '',
+                    tipo: salida.tipo || 'En la calle',
+                    notas: salida.notas || '',
+                    contactos: salida.contactos || []
+                });
+                setMostrarForm(true);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            const eliminarSalida = async (id) => {
+                if (window.confirm('¿Eliminar esta salida de evangelismo?')) {
+                    try {
+                        await db.collection('evangelismo_salidas').doc(id).delete();
+                        alert('✓ Eliminado');
+                    } catch (err) {
+                        alert('Error al eliminar');
+                    }
+                }
+            };
+
+            const convertirAVisitante = async (contacto, salidaFecha) => {
+                if (!window.confirm(`¿Agregar a ${contacto.nombre} como visitante?`)) return;
+                try {
+                    await db.collection('visitantes').add({
+                        nombre: contacto.nombre,
+                        apellido: '',
+                        telefono: contacto.telefono || '',
+                        correo: '',
+                        fecha: salidaFecha,
+                        comoLlego: 'Evangelismo',
+                        estadoCivil: 'Soltero',
+                        cumpleanos: '',
+                        motivoOracion: '',
+                        ubicacion: '',
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    alert(`✓ ${contacto.nombre} agregado como visitante`);
+                } catch (err) {
+                    alert('Error al convertir a visitante');
+                }
+            };
+
+            const hoy = new Date();
+            const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+            const salidaEsteMes = salidas.filter(s => s.fecha && s.fecha.startsWith(mesActual));
+            const totalContactos = salidas.reduce((acc, s) => acc + (s.contactos ? s.contactos.length : 0), 0);
+            const conInteres = salidas.reduce((acc, s) => acc + (s.contactos ? s.contactos.filter(c => c.interes).length : 0), 0);
+
+            const mesesDisponibles = [...new Set(
+                salidas.map(s => s.fecha ? s.fecha.substring(0, 7) : null).filter(Boolean)
+            )].sort().reverse();
+
+            const salidaFiltradas = salidas.filter(s => {
+                if (filtroMes === 'todos') return true;
+                return s.fecha && s.fecha.startsWith(filtroMes);
+            });
+
+            return (
+                <div className="max-w-7xl mx-auto space-y-6">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-3xl font-bold text-secondary">Evangelismo</h2>
+                        <button
+                            onClick={() => { if (mostrarForm) cerrarForm(); else setMostrarForm(true); }}
+                            className="bg-primary text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700"
+                        >
+                            {mostrarForm ? '✕ Cancelar' : '+ Nueva Salida'}
+                        </button>
+                    </div>
+
+                    {/* Estadísticas */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <p className="text-gray-500 text-sm">Total Salidas</p>
+                            <p className="text-3xl font-bold text-secondary">{salidas.length}</p>
+                        </div>
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <p className="text-gray-500 text-sm">Salidas este Mes</p>
+                            <p className="text-3xl font-bold text-blue-600">{salidaEsteMes.length}</p>
+                        </div>
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <p className="text-gray-500 text-sm">Total Contactos</p>
+                            <p className="text-3xl font-bold text-green-600">{totalContactos}</p>
+                        </div>
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <p className="text-gray-500 text-sm">Con Interés</p>
+                            <p className="text-3xl font-bold text-yellow-500">{conInteres}</p>
+                        </div>
+                    </div>
+
+                    {/* Formulario */}
+                    {mostrarForm && (
+                        <div className="bg-white rounded-lg shadow-md p-6">
+                            <h3 className="text-xl font-bold mb-4">
+                                {salidaEditando ? '✏️ Editar Salida' : '+ Registrar Nueva Salida'}
+                            </h3>
+                            <form onSubmit={handleSubmit} className="space-y-5">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block font-semibold mb-1 text-sm">Fecha *</label>
+                                        <input
+                                            type="date"
+                                            value={formData.fecha}
+                                            onChange={e => setFormData({...formData, fecha: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded-lg"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block font-semibold mb-1 text-sm">Zona / Lugar *</label>
+                                        <input
+                                            type="text"
+                                            value={formData.zona}
+                                            onChange={e => setFormData({...formData, zona: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded-lg"
+                                            placeholder="Ej: Plaza Bolívar, Petare..."
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block font-semibold mb-1 text-sm">Tipo de Evangelismo</label>
+                                        <select
+                                            value={formData.tipo}
+                                            onChange={e => setFormData({...formData, tipo: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded-lg"
+                                        >
+                                            <option>En la calle</option>
+                                            <option>Casa a casa</option>
+                                            <option>Plaza / Parque</option>
+                                            <option>Evento especial</option>
+                                            <option>Otro</option>
+                                        </select>
+                                    </div>
+                                    <div className="md:col-span-3">
+                                        <label className="block font-semibold mb-1 text-sm">Notas / Observaciones</label>
+                                        <textarea
+                                            value={formData.notas}
+                                            onChange={e => setFormData({...formData, notas: e.target.value})}
+                                            rows="2"
+                                            className="w-full px-3 py-2 border rounded-lg"
+                                            placeholder="Cómo resultó, condiciones especiales, observaciones..."
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Sección de Contactos */}
+                                <div className="border-t pt-4">
+                                    <h4 className="font-bold text-gray-700 mb-3">
+                                        Contactos Recolectados
+                                        <span className="ml-2 bg-primary text-white text-xs px-2 py-0.5 rounded-full">{formData.contactos.length}</span>
+                                    </h4>
+
+                                    {formData.contactos.length > 0 && (
+                                        <div className="space-y-2 mb-4">
+                                            {formData.contactos.map((c, idx) => (
+                                                <div key={idx} className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-lg border">
+                                                    <div className="flex items-center space-x-3">
+                                                        <div className="w-7 h-7 bg-gray-300 rounded-full flex items-center justify-center text-xs font-bold text-gray-700">
+                                                            {c.nombre.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <span className="font-medium text-sm">{c.nombre}</span>
+                                                        {c.telefono && <span className="text-gray-500 text-sm">📞 {c.telefono}</span>}
+                                                        {c.interes && <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full">⭐ Con interés</span>}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => eliminarContacto(idx)}
+                                                        className="text-red-500 hover:text-red-700 font-bold px-2"
+                                                    >✕</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <p className="text-sm font-semibold text-blue-700 mb-3">Agregar contacto</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                            <input
+                                                type="text"
+                                                value={nuevoContacto.nombre}
+                                                onChange={e => setNuevoContacto({...nuevoContacto, nombre: e.target.value})}
+                                                placeholder="Nombre *"
+                                                className="px-3 py-2 border rounded-lg text-sm md:col-span-1"
+                                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregarContacto(); }}}
+                                            />
+                                            <input
+                                                type="tel"
+                                                value={nuevoContacto.telefono}
+                                                onChange={e => setNuevoContacto({...nuevoContacto, telefono: e.target.value})}
+                                                placeholder="Teléfono"
+                                                className="px-3 py-2 border rounded-lg text-sm md:col-span-1"
+                                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregarContacto(); }}}
+                                            />
+                                            <label className="flex items-center space-x-2 cursor-pointer md:col-span-1">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={nuevoContacto.interes}
+                                                    onChange={e => setNuevoContacto({...nuevoContacto, interes: e.target.checked})}
+                                                    className="w-4 h-4"
+                                                />
+                                                <span className="text-sm text-gray-700">Mostró interés</span>
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={agregarContacto}
+                                                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 md:col-span-1"
+                                            >
+                                                + Agregar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex space-x-3">
+                                    <button
+                                        type="submit"
+                                        disabled={saving}
+                                        className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50"
+                                    >
+                                        {saving ? 'Guardando...' : '✓ Guardar Salida'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={cerrarForm}
+                                        className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-300"
+                                    >
+                                        ✕ Cancelar
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Historial */}
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-xl font-bold">Historial de Salidas</h3>
+                            <select
+                                value={filtroMes}
+                                onChange={e => setFiltroMes(e.target.value)}
+                                className="px-3 py-2 border rounded-lg text-sm"
+                            >
+                                <option value="todos">Todos los meses</option>
+                                {mesesDisponibles.map(m => {
+                                    const [anio, mes] = m.split('-');
+                                    const nombre = new Date(parseInt(anio), parseInt(mes)-1, 1)
+                                        .toLocaleDateString('es', { month: 'long', year: 'numeric' });
+                                    return <option key={m} value={m}>{nombre}</option>;
+                                })}
+                            </select>
+                        </div>
+
+                        {salidaFiltradas.length === 0 ? (
+                            <div className="text-center py-14 text-gray-400">
+                                <div className="text-6xl mb-3">🕊️</div>
+                                <p className="font-semibold text-lg">No hay salidas registradas</p>
+                                <p className="text-sm mt-1">Registra la primera salida de evangelismo</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {salidaFiltradas.map(salida => {
+                                    const abierto = detalleSalidaId === salida.id;
+                                    const contactos = salida.contactos || [];
+                                    const tieneInteres = contactos.some(c => c.interes);
+                                    return (
+                                        <div key={salida.id} className="border rounded-xl overflow-hidden">
+                                            {/* Cabecera */}
+                                            <div
+                                                className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                                                onClick={() => setDetalleSalidaId(abierto ? null : salida.id)}
+                                            >
+                                                <div className="flex items-center space-x-4">
+                                                    <div className="w-11 h-11 bg-primary rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                                                        {contactos.length}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-bold text-gray-800">{salida.zona}</p>
+                                                        <p className="text-sm text-gray-500">
+                                                            {salida.fecha
+                                                                ? new Date(salida.fecha + 'T12:00:00').toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                                                                : ''}
+                                                            {' · '}{salida.tipo}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center space-x-2 flex-shrink-0">
+                                                    {tieneInteres && (
+                                                        <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full hidden sm:inline">⭐ Con interés</span>
+                                                    )}
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); editarSalida(salida); }}
+                                                        className="text-blue-400 hover:text-blue-600 p-1"
+                                                        title="Editar"
+                                                    >✏️</button>
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); eliminarSalida(salida.id); }}
+                                                        className="text-red-400 hover:text-red-600 p-1"
+                                                        title="Eliminar"
+                                                    >🗑️</button>
+                                                    <span className="text-gray-400 ml-1">{abierto ? '▲' : '▼'}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Detalle expandible */}
+                                            {abierto && (
+                                                <div className="border-t bg-gray-50 p-4 space-y-3">
+                                                    {salida.notas && (
+                                                        <p className="text-sm text-gray-600 italic bg-white px-3 py-2 rounded-lg border-l-4 border-primary">
+                                                            📝 {salida.notas}
+                                                        </p>
+                                                    )}
+                                                    {contactos.length === 0 ? (
+                                                        <p className="text-sm text-gray-400 text-center py-4">
+                                                            No se registraron contactos en esta salida.
+                                                        </p>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            <p className="text-sm font-semibold text-gray-600">
+                                                                {contactos.length} contacto{contactos.length !== 1 ? 's' : ''}:
+                                                            </p>
+                                                            {contactos.map((c, idx) => (
+                                                                <div key={idx} className="flex items-center justify-between bg-white px-4 py-3 rounded-lg border">
+                                                                    <div className="flex items-center space-x-3">
+                                                                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-bold text-gray-600">
+                                                                            {c.nombre.charAt(0).toUpperCase()}
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="font-semibold text-sm text-gray-800">{c.nombre}</p>
+                                                                            {c.telefono && (
+                                                                                <p className="text-xs text-gray-500">📞 {c.telefono}</p>
+                                                                            )}
+                                                                        </div>
+                                                                        {c.interes && (
+                                                                            <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full">⭐ Interesado</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => convertirAVisitante(c, salida.fecha)}
+                                                                        className="text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                                                                        title="Registrar como visitante"
+                                                                    >
+                                                                        + Visitante
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 </div>
             );
