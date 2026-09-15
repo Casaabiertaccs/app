@@ -2191,7 +2191,7 @@
             hoy.setHours(0, 0, 0, 0);
 
             const eventosProximos = eventos
-                .filter(e => new Date(e.fecha) >= hoy)
+                .filter(e => new Date(e.fecha + 'T12:00:00') >= hoy)
                 .sort((a, b) => {
                     const fechaA = new Date(`${a.fecha} ${a.horaInicio}`);
                     const fechaB = new Date(`${b.fecha} ${b.horaInicio}`);
@@ -2208,7 +2208,7 @@
             }
 
             const formatearFecha = (fecha) => {
-                const f = new Date(fecha);
+                const f = new Date(fecha + 'T12:00:00');
                 const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                 return f.toLocaleDateString('es-ES', opciones);
             };
