@@ -1512,6 +1512,29 @@
                 }
             });
             const [saving, setSaving] = useState(false);
+            const [repetir, setRepetir] = useState(false);
+            const [frecuencia, setFrecuencia] = useState('semanal');
+            const [repetirHasta, setRepetirHasta] = useState('');
+
+            const tiposFijos = ['Experiencia ADORA', 'Reunión de Oración', 'Escuela Adora', 'Evento Especial', 'Juventud', 'Niños', 'Open House', 'Ayuno', 'Conferencia'];
+            const esTipoPersonalizado = formData.tipoEvento !== '' && !tiposFijos.includes(formData.tipoEvento);
+
+            const generarFechasSerie = (fechaInicio, frecuencia, fechaFin) => {
+                const fechas = [];
+                let actual = new Date(fechaInicio + 'T00:00:00');
+                const fin = new Date(fechaFin + 'T00:00:00');
+                let contador = 0;
+                while (actual <= fin && contador < 104) {
+                    fechas.push(actual.toISOString().split('T')[0]);
+                    if (frecuencia === 'mensual') {
+                        actual.setMonth(actual.getMonth() + 1);
+                    } else {
+                        actual.setDate(actual.getDate() + (frecuencia === 'quincenal' ? 14 : 7));
+                    }
+                    contador++;
+                }
+                return fechas;
+            };
 
             // Cargar eventos de Firebase
             useEffect(() => {
@@ -1532,20 +1555,43 @@
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
+
+                if (!eventoEditando && repetir && !repetirHasta) {
+                    alert('Selecciona hasta qué fecha se debe repetir el evento');
+                    return;
+                }
+
                 setSaving(true);
 
                 try {
-                    const eventoData = {
-                        ...formData,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    };
-
-                    if (eventoEditando) {
-                        await db.collection('eventos').doc(eventoEditando.id).update(eventoData);
-                        alert('✓ Evento actualizado exitosamente');
+                    if (!eventoEditando && repetir) {
+                        const fechas = generarFechasSerie(formData.fecha, frecuencia, repetirHasta);
+                        const serieId = `serie_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                        const batch = db.batch();
+                        fechas.forEach(fecha => {
+                            const ref = db.collection('eventos').doc();
+                            batch.set(ref, {
+                                ...formData,
+                                fecha,
+                                serieId,
+                                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        });
+                        await batch.commit();
+                        alert(`✓ Serie creada: ${fechas.length} eventos programados`);
                     } else {
-                        await db.collection('eventos').add(eventoData);
-                        alert('✓ Evento creado exitosamente');
+                        const eventoData = {
+                            ...formData,
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        };
+
+                        if (eventoEditando) {
+                            await db.collection('eventos').doc(eventoEditando.id).update(eventoData);
+                            alert('✓ Evento actualizado exitosamente');
+                        } else {
+                            await db.collection('eventos').add(eventoData);
+                            alert('✓ Evento creado exitosamente');
+                        }
                     }
 
                     // Limpiar formulario
@@ -1565,6 +1611,9 @@
                             oracion: ''
                         }
                     });
+                    setRepetir(false);
+                    setFrecuencia('semanal');
+                    setRepetirHasta('');
                     setMostrarFormulario(false);
                     setEventoEditando(null);
                 } catch (error) {
@@ -1593,13 +1642,45 @@
                         oracion: ''
                     }
                 });
+                setRepetir(false);
+                setFrecuencia('semanal');
+                setRepetirHasta('');
                 setMostrarFormulario(true);
             };
 
-            const handleEliminar = async (id) => {
+            const handleEliminar = async (evento) => {
+                if (evento.serieId) {
+                    const borrarSerie = window.confirm(
+                        'Este evento pertenece a una serie repetitiva.\n\nPresiona ACEPTAR para eliminar TODA la serie (todas las fechas repetidas de este evento).\nPresiona CANCELAR si quieres elegir eliminar solo este día.'
+                    );
+                    if (borrarSerie) {
+                        if (!window.confirm('¿Confirmas eliminar TODOS los eventos de esta serie? Esta acción no se puede deshacer.')) return;
+                        try {
+                            const snapshot = await db.collection('eventos').where('serieId', '==', evento.serieId).get();
+                            const batch = db.batch();
+                            snapshot.docs.forEach(doc => batch.delete(doc.ref));
+                            await batch.commit();
+                            alert('✓ Serie de eventos eliminada');
+                        } catch (error) {
+                            console.error('Error al eliminar la serie:', error);
+                            alert('Error al eliminar la serie de eventos');
+                        }
+                        return;
+                    }
+                    if (!window.confirm('¿Eliminar solo este evento (un día)?')) return;
+                    try {
+                        await db.collection('eventos').doc(evento.id).delete();
+                        alert('✓ Evento eliminado');
+                    } catch (error) {
+                        console.error('Error al eliminar:', error);
+                        alert('Error al eliminar el evento');
+                    }
+                    return;
+                }
+
                 if (window.confirm('¿Estás seguro de eliminar este evento?')) {
                     try {
-                        await db.collection('eventos').doc(id).delete();
+                        await db.collection('eventos').doc(evento.id).delete();
                         alert('✓ Evento eliminado');
                     } catch (error) {
                         console.error('Error al eliminar:', error);
@@ -1611,6 +1692,9 @@
             const cancelarEdicion = () => {
                 setMostrarFormulario(false);
                 setEventoEditando(null);
+                setRepetir(false);
+                setFrecuencia('semanal');
+                setRepetirHasta('');
                 setFormData({
                     titulo: '',
                     fecha: '',
@@ -1704,8 +1788,14 @@
                                         <div>
                                             <label className="block text-gray-700 font-semibold mb-2">Tipo de Evento *</label>
                                             <select
-                                                value={formData.tipoEvento}
-                                                onChange={(e) => setFormData({...formData, tipoEvento: e.target.value})}
+                                                value={esTipoPersonalizado ? '__otro__' : formData.tipoEvento}
+                                                onChange={(e) => {
+                                                    if (e.target.value === '__otro__') {
+                                                        setFormData({...formData, tipoEvento: ''});
+                                                    } else {
+                                                        setFormData({...formData, tipoEvento: e.target.value});
+                                                    }
+                                                }}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                                                 required
                                             >
@@ -1718,8 +1808,23 @@
                                                 <option>Open House</option>
                                                 <option>Ayuno</option>
                                                 <option>Conferencia</option>
+                                                <option value="__otro__">✏️ Otro (personalizado)</option>
                                             </select>
                                         </div>
+
+                                        {esTipoPersonalizado && (
+                                            <div className="md:col-span-2">
+                                                <label className="block text-gray-700 font-semibold mb-2">Nombre del tipo de evento personalizado *</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.tipoEvento}
+                                                    onChange={(e) => setFormData({...formData, tipoEvento: e.target.value})}
+                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="Ej: Vigilia de Año Nuevo"
+                                                    required
+                                                />
+                                            </div>
+                                        )}
 
                                         <div>
                                             <label className="block text-gray-700 font-semibold mb-2">Hora Inicio *</label>
@@ -1752,6 +1857,50 @@
                                                 placeholder="Detalles adicionales del evento..."
                                             />
                                         </div>
+
+                                        {!eventoEditando && (
+                                            <div className="md:col-span-2 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                                <label className="flex items-center space-x-2 font-semibold text-gray-700 mb-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={repetir}
+                                                        onChange={(e) => setRepetir(e.target.checked)}
+                                                        className="w-4 h-4"
+                                                    />
+                                                    <span>🔁 Repetir este evento</span>
+                                                </label>
+                                                {repetir && (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-gray-700 font-semibold mb-2 text-sm">Frecuencia</label>
+                                                            <select
+                                                                value={frecuencia}
+                                                                onChange={(e) => setFrecuencia(e.target.value)}
+                                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                                                            >
+                                                                <option value="semanal">Cada semana</option>
+                                                                <option value="quincenal">Cada 2 semanas</option>
+                                                                <option value="mensual">Cada mes</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-gray-700 font-semibold mb-2 text-sm">Repetir hasta *</label>
+                                                            <input
+                                                                type="date"
+                                                                value={repetirHasta}
+                                                                onChange={(e) => setRepetirHasta(e.target.value)}
+                                                                min={formData.fecha}
+                                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                required={repetir}
+                                                            />
+                                                        </div>
+                                                        <p className="md:col-span-2 text-xs text-gray-500">
+                                                            Se crearán eventos idénticos en cada fecha hasta la fecha límite. Podrás borrar solo un día o toda la serie después.
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -2145,11 +2294,11 @@
                                         ✏️
                                     </button>
                                     <button
-                                        onClick={() => handleEliminar(evento.id)}
+                                        onClick={() => handleEliminar(evento)}
                                         className="text-red-600 hover:text-red-800 font-semibold px-3 py-1 rounded hover:bg-red-50"
-                                        title="Eliminar"
+                                        title={evento.serieId ? 'Eliminar (evento repetitivo)' : 'Eliminar'}
                                     >
-                                        🗑️
+                                        {evento.serieId ? '🗑️🔁' : '🗑️'}
                                     </button>
                                 </div>
                             </div>
