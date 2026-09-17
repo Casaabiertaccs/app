@@ -964,7 +964,7 @@
             const [formData, setFormData] = useState(configuracion);
             const [guardando, setGuardando] = useState(false);
             const [editandoPerfil, setEditandoPerfil] = useState(false);
-            const [perfilData, setPerfilData] = useState({ nombre: userProfile?.nombre || '', departamento: userProfile?.departamento || '' });
+            const [perfilData, setPerfilData] = useState({ nombre: userProfile?.nombre || '', departamento: userProfile?.departamento || '', telefono: userProfile?.telefono || '' });
             const [guardandoPerfil, setGuardandoPerfil] = useState(false);
 
             const currentUser = auth.currentUser;
@@ -976,9 +976,10 @@
                     await db.collection('users').doc(currentUser.uid).update({
                         nombre: perfilData.nombre.trim(),
                         departamento: perfilData.departamento.trim(),
+                        telefono: perfilData.telefono.trim(),
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
-                    setUserProfile({ ...userProfile, nombre: perfilData.nombre.trim(), departamento: perfilData.departamento.trim() });
+                    setUserProfile({ ...userProfile, nombre: perfilData.nombre.trim(), departamento: perfilData.departamento.trim(), telefono: perfilData.telefono.trim() });
                     setEditandoPerfil(false);
                     alert('✓ Perfil actualizado');
                 } catch (e) {
@@ -1027,6 +1028,9 @@
                                     <p className="text-xl font-bold text-secondary">{userProfile?.nombre || '(sin nombre)'}</p>
                                     <p className="text-gray-500">{currentUser?.email}</p>
                                     <p className="text-sm text-gray-400">{userProfile?.departamento || 'Sin departamento'} • {userProfile?.rol || 'usuario'}</p>
+                                    <p className="text-sm text-gray-400">
+                                        📱 {userProfile?.telefono || <span className="text-red-500">Sin teléfono — agrégalo para recibir recordatorios</span>}
+                                    </p>
                                 </div>
                             </div>
                         ) : (
@@ -1050,6 +1054,16 @@
                                             onChange={e => setPerfilData({...perfilData, departamento: e.target.value})}
                                             className="w-full px-4 py-2 border rounded-lg"
                                             placeholder="Ej: Logística"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block font-semibold mb-2 text-sm">Teléfono (WhatsApp)</label>
+                                        <input
+                                            type="tel"
+                                            value={perfilData.telefono}
+                                            onChange={e => setPerfilData({...perfilData, telefono: e.target.value})}
+                                            className="w-full px-4 py-2 border rounded-lg"
+                                            placeholder="Ej: 04241234567"
                                         />
                                     </div>
                                 </div>
@@ -1174,6 +1188,8 @@
         function LoginPage() {
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
+            const [nombre, setNombre] = useState('');
+            const [telefono, setTelefono] = useState('');
             const [isLogin, setIsLogin] = useState(true);
             const [error, setError] = useState('');
             const [loading, setLoading] = useState(false);
@@ -1187,7 +1203,16 @@
                     if (isLogin) {
                         await auth.signInWithEmailAndPassword(email, password);
                     } else {
-                        await auth.createUserWithEmailAndPassword(email, password);
+                        const esAdminPrincipal = email === 'tloimprimimos@gmail.com';
+                        const credencial = await auth.createUserWithEmailAndPassword(email, password);
+                        await db.collection('users').doc(credencial.user.uid).set({
+                            email,
+                            nombre: nombre.trim() || email.split('@')[0],
+                            telefono: telefono.trim(),
+                            departamento: esAdminPrincipal ? 'Administración' : 'General',
+                            rol: esAdminPrincipal ? 'admin' : 'usuario',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
                     }
                 } catch (err) {
                     console.error(err);
@@ -1218,6 +1243,22 @@
 
                         {/* Formulario */}
                         <form onSubmit={handleSubmit} className="space-y-4">
+                            {!isLogin && (
+                                <div>
+                                    <label className="block text-gray-700 font-semibold mb-2">
+                                        Nombre completo
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={nombre}
+                                        onChange={(e) => setNombre(e.target.value)}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                                        placeholder="Ej: Juan Pérez"
+                                        required
+                                    />
+                                </div>
+                            )}
+
                             <div>
                                 <label className="block text-gray-700 font-semibold mb-2">
                                     Email
@@ -1243,6 +1284,22 @@
                                     required
                                 />
                             </div>
+
+                            {!isLogin && (
+                                <div>
+                                    <label className="block text-gray-700 font-semibold mb-2">
+                                        Teléfono (WhatsApp)
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        value={telefono}
+                                        onChange={(e) => setTelefono(e.target.value)}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                                        placeholder="Ej: 04241234567"
+                                        required
+                                    />
+                                </div>
+                            )}
 
                             {error && (
                                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
